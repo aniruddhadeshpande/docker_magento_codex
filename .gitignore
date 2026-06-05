@@ -1,0 +1,4 @@
+.env
+auth/auth.json
+certs/*.crt
+certs/*.key

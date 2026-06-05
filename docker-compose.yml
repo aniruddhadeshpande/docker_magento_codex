@@ -1,0 +1,199 @@
+services:
+  tls-proxy:
+    image: nginx:1.30-alpine
+    depends_on:
+      varnish:
+        condition: service_healthy
+    ports:
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./tls/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    networks:
+      - learning_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null --no-check-certificate https://127.0.0.1/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  varnish:
+    image: varnish:7
+    depends_on:
+      nginx:
+        condition: service_healthy
+    volumes:
+      - ./varnish/default.vcl:/etc/varnish/default.vcl:ro
+    command: ["varnishd", "-F", "-f", "/etc/varnish/default.vcl", "-a", "http=:80,HTTP", "-s", "malloc,256m"]
+    networks:
+      - learning_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "varnishadm ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  nginx:
+    image: nginx:1.30-alpine
+    depends_on:
+      php-fpm:
+        condition: service_started
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./magento:/var/www/html:ro
+    networks:
+      - learning_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  php-fpm:
+    build:
+      context: ./php
+      dockerfile: Dockerfile
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      MAGENTO_BASE_URL: ${MAGENTO_BASE_URL}
+      MAGENTO_BACKEND_FRONTNAME: ${MAGENTO_BACKEND_FRONTNAME}
+      MAGENTO_ADMIN_USER: ${MAGENTO_ADMIN_USER}
+      MAGENTO_ADMIN_PASSWORD: ${MAGENTO_ADMIN_PASSWORD}
+      MAGENTO_ADMIN_EMAIL: ${MAGENTO_ADMIN_EMAIL}
+      MAGENTO_ADMIN_FIRSTNAME: ${MAGENTO_ADMIN_FIRSTNAME}
+      MAGENTO_ADMIN_LASTNAME: ${MAGENTO_ADMIN_LASTNAME}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      OPENSEARCH_HOST: ${OPENSEARCH_HOST}
+      OPENSEARCH_PORT: ${OPENSEARCH_PORT}
+      OPENSEARCH_INDEX_PREFIX: ${OPENSEARCH_INDEX_PREFIX}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_CACHE_DB: ${REDIS_CACHE_DB}
+      REDIS_SESSION_DB: ${REDIS_SESSION_DB}
+      REDIS_CACHE_SERIALIZER: ${REDIS_CACHE_SERIALIZER}
+      HTTP_CACHE_HOSTS: ${HTTP_CACHE_HOSTS}
+      VARNISH_BACKEND_HOST: ${VARNISH_BACKEND_HOST}
+      VARNISH_BACKEND_PORT: ${VARNISH_BACKEND_PORT}
+      VARNISH_PURGE_ACCESS_LIST: ${VARNISH_PURGE_ACCESS_LIST}
+      COMPOSER_HOME: /var/www/.composer
+      COMPOSER_CACHE_DIR: /tmp/composer-cache
+      COMPOSER_ALLOW_SUPERUSER: "1"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./magento:/var/www/html
+      - ./auth:/var/www/.composer:ro
+    networks:
+      - learning_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "php-fpm -t || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  mysql:
+    image: mysql:8.4
+    command: ["--log-bin-trust-function-creators=1"]
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - learning_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} --silent || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+
+  opensearch:
+    image: opensearchproject/opensearch:3
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      bootstrap.memory_lock: "true"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "${OPENSEARCH_PORT:-9200}:9200"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    networks:
+      - learning_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:4.2-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    ports:
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - learning_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+
+  redis:
+    image: redis:6.2-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - learning_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+networks:
+  learning_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.23.0.0/16
+
+volumes:
+  mysql_data:
+  opensearch_data:
+  rabbitmq_data:
+  redis_data:
