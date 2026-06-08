@@ -1,0 +1,17 @@
+{
+    "name": "training/module-stock-notify-queue",
+    "description": "Learning module for RabbitMQ stock notifications with email and WebSocket delivery.",
+    "type": "magento2-module",
+    "license": [
+        "OSL-3.0",
+        "AFL-3.0"
+    ],
+    "autoload": {
+        "files": [
+            "registration.php"
+        ],
+        "psr-4": {
+            "Training\\StockNotifyQueue\\": ""
+        }
+    }
+}
