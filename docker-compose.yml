@@ -125,6 +125,22 @@ services:
       timeout: 10s
       retries: 10
 
+  phpmyadmin:
+    image: phpmyadmin:5.2-apache
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: ${MYSQL_USER}
+      PMA_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "${PHPMYADMIN_PORT:-8081}:80"
+    networks:
+      - learning_network
+    restart: unless-stopped
+
   opensearch:
     image: opensearchproject/opensearch:3
     environment:
@@ -187,10 +203,8 @@ services:
 
 networks:
   learning_network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.23.0.0/16
+    name: docker_magento_learning_network
+    external: true
 
 volumes:
   mysql_data:
