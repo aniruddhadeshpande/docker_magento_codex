@@ -6,12 +6,12 @@ namespace Training\StockNotifyQueue\Model\Queue;
 
 use InvalidArgumentException;
 use JsonException;
-use Psr\Log\LoggerInterface;
+use Training\StockNotifyQueue\Model\Event\StockEventProcessor;
 
 class StockIncreaseConsumer
 {
     public function __construct(
-        private readonly LoggerInterface $logger
+        private readonly StockEventProcessor $stockEventProcessor
     ) {
     }
 
@@ -20,13 +20,7 @@ class StockIncreaseConsumer
         $payload = $this->decodeMessage($message);
         $this->validatePayload($payload);
 
-        $this->logger->info('Training stock increase event received.', [
-            'event_id' => $payload['event_id'],
-            'sku' => $payload['sku'],
-            'qty_delta' => $payload['qty_delta'],
-            'source_code' => $payload['source_code'] ?? null,
-            'occurred_at' => $payload['occurred_at'] ?? null,
-        ]);
+        $this->stockEventProcessor->process($payload);
     }
 
     /**
