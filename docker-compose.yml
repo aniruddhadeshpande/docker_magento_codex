@@ -25,6 +25,7 @@ services:
         condition: service_healthy
     volumes:
       - ./varnish/default.vcl:/etc/varnish/default.vcl:ro
+      - varnish_workdir:/var/lib/varnish
     command: ["varnishd", "-F", "-f", "/etc/varnish/default.vcl", "-a", "http=:80,HTTP", "-s", "malloc,256m"]
     networks:
       - learning_network
@@ -82,6 +83,14 @@ services:
       VARNISH_BACKEND_HOST: ${VARNISH_BACKEND_HOST}
       VARNISH_BACKEND_PORT: ${VARNISH_BACKEND_PORT}
       VARNISH_PURGE_ACCESS_LIST: ${VARNISH_PURGE_ACCESS_LIST}
+      NEW_RELIC_ENABLED: ${NEW_RELIC_ENABLED:-false}
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:-}
+      NEW_RELIC_REGION: ${NEW_RELIC_REGION:-US}
+      NEW_RELIC_APP_NAME: ${NEW_RELIC_APP_NAME:-docker-magento-learning}
+      NEW_RELIC_ENVIRONMENT: ${NEW_RELIC_ENVIRONMENT:-local}
+      NEW_RELIC_LOG_LEVEL: ${NEW_RELIC_LOG_LEVEL:-info}
+      NEW_RELIC_DISTRIBUTED_TRACING_ENABLED: ${NEW_RELIC_DISTRIBUTED_TRACING_ENABLED:-true}
+      NEW_RELIC_BROWSER_MONITORING_AUTO_INSTRUMENT: ${NEW_RELIC_BROWSER_MONITORING_AUTO_INSTRUMENT:-true}
       COMPOSER_HOME: /var/www/.composer
       COMPOSER_CACHE_DIR: /tmp/composer-cache
       COMPOSER_ALLOW_SUPERUSER: "1"
@@ -105,6 +114,142 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+
+  newrelic-php-daemon:
+    image: newrelic/php-daemon:latest
+    profiles:
+      - observability
+    environment:
+      NEW_RELIC_LOG_LEVEL: ${NEW_RELIC_LOG_LEVEL:-info}
+    networks:
+      - learning_network
+    restart: unless-stopped
+
+  newrelic-infra:
+    image: newrelic/infrastructure-bundle:latest
+    profiles:
+      - observability
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -z "$$NRIA_LICENSE_KEY" ]; then
+          echo "NEW_RELIC_LICENSE_KEY is empty; newrelic-infra is idle."
+          tail -f /dev/null
+        fi
+        exec /sbin/tini -- /usr/bin/newrelic-infra-service
+    privileged: true
+    pid: host
+    environment:
+      NRIA_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:-}
+      NRIA_DISPLAY_NAME: ${APP_NAME:-docker-magento-learning}-${NEW_RELIC_ENVIRONMENT:-local}
+      NRIA_LOG_LEVEL: ${NEW_RELIC_LOG_LEVEL:-info}
+    volumes:
+      - /:/host:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./newrelic/infrastructure/newrelic-infra.yml:/etc/newrelic-infra.yml:ro
+      - ./newrelic/infrastructure/logging.yml:/etc/newrelic-infra/logging.d/docker-magento.yml:ro
+      - ./newrelic/infrastructure/integrations:/etc/newrelic-infra/integrations.d:ro
+    networks:
+      - learning_network
+    restart: unless-stopped
+
+  newrelic-otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.128.0
+    profiles:
+      - observability
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    environment:
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:-}
+      NEW_RELIC_OTLP_ENDPOINT: ${NEW_RELIC_OTLP_ENDPOINT:-https://otlp.nr-data.net:4318}
+      NEW_RELIC_ENVIRONMENT: ${NEW_RELIC_ENVIRONMENT:-local}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-guest}
+    volumes:
+      - ./newrelic/otel/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    depends_on:
+      nginx:
+        condition: service_healthy
+      tls-proxy:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      php-fpm-exporter:
+        condition: service_started
+      mysql-exporter:
+        condition: service_started
+      opensearch-exporter:
+        condition: service_started
+      varnish-exporter:
+        condition: service_started
+    networks:
+      - learning_network
+    restart: unless-stopped
+
+  php-fpm-exporter:
+    image: hipages/php-fpm_exporter:2.2.0
+    profiles:
+      - observability
+    command:
+      - --phpfpm.scrape-uri=tcp://php-fpm:9000/fpm-status
+      - --web.listen-address=:9253
+    depends_on:
+      php-fpm:
+        condition: service_started
+    networks:
+      - learning_network
+    restart: unless-stopped
+
+  mysql-exporter:
+    image: prom/mysqld-exporter:v0.16.0
+    profiles:
+      - observability
+    command:
+      - --mysqld.address=mysql:3306
+      - --mysqld.username=${MYSQL_USER:-magento}
+    environment:
+      MYSQLD_EXPORTER_PASSWORD: ${MYSQL_PASSWORD:-}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - learning_network
+    restart: unless-stopped
+
+  opensearch-exporter:
+    image: quay.io/prometheuscommunity/elasticsearch-exporter:v1.8.0
+    profiles:
+      - observability
+    command:
+      - --es.uri=http://opensearch:9200
+      - --es.all
+      - --es.indices
+      - --collector.clustersettings
+      - --web.listen-address=:9114
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks:
+      - learning_network
+    restart: unless-stopped
+
+  varnish-exporter:
+    build:
+      context: ./newrelic/exporters/varnish
+      dockerfile: Dockerfile
+    image: docker_magento-varnish-exporter
+    profiles:
+      - observability
+    environment:
+      VARNISH_NAME: /var/lib/varnish/varnishd
+      VARNISH_EXPORTER_PORT: 9131
+    volumes:
+      - varnish_workdir:/var/lib/varnish:ro
+    depends_on:
+      varnish:
+        condition: service_healthy
+    networks:
+      - learning_network
+    restart: unless-stopped
 
   mysql:
     image: mysql:8.4
@@ -211,3 +356,4 @@ volumes:
   opensearch_data:
   rabbitmq_data:
   redis_data:
+  varnish_workdir:

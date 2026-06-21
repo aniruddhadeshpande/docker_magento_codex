@@ -1,0 +1,7 @@
+logs:
+  - name: docker-magento-container-logs
+    file: /host/var/lib/docker/containers/*/*.log
+    attributes:
+      project: docker-magento
+      source: docker-json-file
+      environment: local

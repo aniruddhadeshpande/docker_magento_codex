@@ -1,0 +1,29 @@
+-- APM transactions
+FROM Transaction SELECT count(*), percentile(duration, 50, 95, 99) WHERE appName = 'docker-magento-learning' SINCE 30 minutes ago TIMESERIES
+
+-- Slow Magento transactions
+FROM Transaction SELECT max(duration), average(duration) WHERE appName = 'docker-magento-learning' FACET name SINCE 30 minutes ago LIMIT 20
+
+-- PHP errors
+FROM TransactionError SELECT count(*) WHERE appName = 'docker-magento-learning' FACET error.class, transactionName SINCE 30 minutes ago
+
+-- Discover ingested dimensional metrics
+FROM Metric SELECT uniques(metricName) WHERE metricName LIKE 'nginx.%' OR metricName LIKE 'rabbitmq.%' OR metricName LIKE 'phpfpm_%' OR metricName LIKE 'mysql_%' OR metricName LIKE 'elasticsearch_%' OR metricName LIKE 'varnish_%' SINCE 30 minutes ago LIMIT 200
+
+-- PHP-FPM saturation
+FROM Metric SELECT latest(phpfpm_active_processes), latest(phpfpm_idle_processes), latest(phpfpm_listen_queue) SINCE 30 minutes ago TIMESERIES
+
+-- Varnish cache counters
+FROM Metric SELECT latest(varnish_main_cache_hit), latest(varnish_main_cache_miss), latest(varnish_main_backend_fail) SINCE 30 minutes ago TIMESERIES
+
+-- MySQL connections
+FROM Metric SELECT latest(mysql_global_status_threads_connected), latest(mysql_global_status_max_used_connections) SINCE 30 minutes ago TIMESERIES
+
+-- OpenSearch cluster status metric discovery
+FROM Metric SELECT uniques(metricName) WHERE metricName LIKE 'elasticsearch_cluster_%' SINCE 30 minutes ago LIMIT 100
+
+-- Logs from this project
+FROM Log SELECT count(*) WHERE project = 'docker-magento' SINCE 30 minutes ago TIMESERIES
+
+-- Container restarts and resource trend discovery
+FROM Metric SELECT uniques(metricName) WHERE metricName LIKE 'container.%' OR metricName LIKE 'docker.%' SINCE 30 minutes ago LIMIT 100

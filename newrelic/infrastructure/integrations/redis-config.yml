@@ -1,0 +1,13 @@
+integrations:
+  - name: nri-redis
+    env:
+      HOSTNAME: redis
+      PORT: 6379
+      REMOTE_MONITORING: true
+      KEYS: false
+      METRICS: true
+      INVENTORY: true
+    interval: 30s
+    labels:
+      project: docker-magento
+      role: cache

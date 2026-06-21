@@ -1,0 +1,76 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  rabbitmq:
+    endpoint: http://rabbitmq:15672
+    username: ${env:RABBITMQ_DEFAULT_USER}
+    password: ${env:RABBITMQ_DEFAULT_PASS}
+    collection_interval: 30s
+
+  nginx:
+    endpoint: http://nginx/nginx_status
+    collection_interval: 30s
+
+  nginx/tls-proxy:
+    endpoint: https://tls-proxy/nginx_status
+    collection_interval: 30s
+    tls:
+      insecure_skip_verify: true
+
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: docker-magento-php-fpm
+          scrape_interval: 30s
+          static_configs:
+            - targets: [php-fpm-exporter:9253]
+              labels:
+                component: php-fpm
+
+        - job_name: docker-magento-mysql
+          scrape_interval: 30s
+          static_configs:
+            - targets: [mysql-exporter:9104]
+              labels:
+                component: mysql
+
+        - job_name: docker-magento-opensearch
+          scrape_interval: 30s
+          static_configs:
+            - targets: [opensearch-exporter:9114]
+              labels:
+                component: opensearch
+
+        - job_name: docker-magento-varnish
+          scrape_interval: 30s
+          static_configs:
+            - targets: [varnish-exporter:9131]
+              labels:
+                component: varnish
+
+processors:
+  resource:
+    attributes:
+      - key: service.namespace
+        value: docker-magento
+        action: upsert
+      - key: deployment.environment
+        value: ${env:NEW_RELIC_ENVIRONMENT}
+        action: upsert
+  batch:
+
+exporters:
+  otlphttp/newrelic:
+    endpoint: ${env:NEW_RELIC_OTLP_ENDPOINT}
+    headers:
+      api-key: ${env:NEW_RELIC_LICENSE_KEY}
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics:
+      receivers: [rabbitmq, nginx, nginx/tls-proxy, prometheus]
+      processors: [resource, batch]
+      exporters: [otlphttp/newrelic]
