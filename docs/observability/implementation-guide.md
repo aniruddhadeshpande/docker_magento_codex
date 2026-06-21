@@ -42,6 +42,60 @@ NEW_RELIC_REGION=EU
 NEW_RELIC_OTLP_ENDPOINT=https://otlp.eu01.nr-data.net:4318
 ```
 
+## Generate New Relic API Keys
+
+Use the New Relic API keys UI:
+
+- US: `https://one.newrelic.com/api-keys`
+- EU: `https://one.eu.newrelic.com/api-keys`
+
+### Ingest License Key
+
+Create this key first. It is required by the PHP agent, infrastructure agent,
+and OTel collector.
+
+1. Log in to New Relic with a user that can manage keys for the target account.
+2. Open the API keys UI.
+3. Click `Create a key`.
+4. Enter a name such as `docker-magento-learning-local-ingest`.
+5. Select `Ingest - License` as the key type.
+6. Select the account that should receive the Magento telemetry.
+7. Save the key and copy the full value immediately.
+8. Add it to `.env`:
+
+```dotenv
+NEW_RELIC_LICENSE_KEY=<ingest-license-key>
+```
+
+### User API Key
+
+Create this key only if you plan to automate dashboards, alerts, or NerdGraph
+queries. Agents and metric ingestion do not need it.
+
+1. Open the API keys UI.
+2. Click `Create a key`.
+3. Enter a name such as `docker-magento-learning-local-user`.
+4. Select `User` as the key type.
+5. Save the key and copy the full value immediately.
+6. Add it to `.env`:
+
+```dotenv
+NEW_RELIC_API_KEY=<user-api-key>
+NEW_RELIC_ACCOUNT_ID=<target-account-id>
+```
+
+### Key Handling Notes
+
+- New Relic temporarily shows the full key value when a license key or user key
+  is created. After creation, the API keys UI shows only a truncated value.
+- Store generated keys only in `.env` or a local secret store.
+- Do not commit generated keys, paste them into tickets, or include them in
+  copied command output.
+- Create a separate ingest license key for this local stack instead of reusing
+  an organization-wide original key. That makes later rotation simple.
+- A browser key is not required for this implementation unless manual browser
+  instrumentation is added later.
+
 ## Implemented Components
 
 | Component | Service/config |
