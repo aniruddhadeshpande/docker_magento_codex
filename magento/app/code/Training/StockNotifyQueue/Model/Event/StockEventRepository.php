@@ -13,6 +13,7 @@ class StockEventRepository
     private const STATUS_RECEIVED = 'received';
     private const STATUS_PROCESSING = 'processing';
     private const STATUS_PROCESSED = 'processed';
+    private const STATUS_FAILED = 'failed';
 
     public function __construct(
         private readonly ResourceConnection $resourceConnection
@@ -51,6 +52,13 @@ class StockEventRepository
         $this->updateStatus($eventId, self::STATUS_PROCESSED, [
             'processed_at' => gmdate('Y-m-d H:i:s'),
             'error_message' => null,
+        ]);
+    }
+
+    public function markFailed(string $eventId, string $errorMessage): void
+    {
+        $this->updateStatus($eventId, self::STATUS_FAILED, [
+            'error_message' => mb_substr($errorMessage, 0, 65535),
         ]);
     }
 
